@@ -72,7 +72,7 @@ userSchema.pre<User>("save", async function (next) {
   next();
 });
 
-// compare password
+// compare entered password
 
 userSchema.methods.comparePassword = async function (
   enteredPassword: string
