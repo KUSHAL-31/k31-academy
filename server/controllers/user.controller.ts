@@ -3,9 +3,8 @@ import userModel, { IUser } from "../models/user.model";
 import ErrorHandler from "../utils/errorHandler";
 import { CatchAsyncError } from "../middleware/catchAsyncErrors";
 import jwt, { Secret } from "jsonwebtoken";
-import ejs from "ejs";
-import path from "path";
 import sendEmail from "../utils/sendEmail";
+import { createActivationToken } from "../utils/helperFunctions";
 require("dotenv").config();
 
 // Register user
@@ -53,22 +52,65 @@ export const registerUser = CatchAsyncError(
   }
 );
 
-interface IActivationToken {
-  token: string;
-  activationCode: string;
+// Account activation API
+
+interface IActivationRequest {
+  activation_token: string;
+  activation_code: string;
 }
 
-export const createActivationToken = (user: any): IActivationToken => {
-  const activationCode = Math.floor(1000 + Math.random() * 9000).toString();
-  const token = jwt.sign(
-    {
-      user,
-      activationCode,
-    },
-    process.env.ACTIVATION_SECRET as Secret,
-    {
-      expiresIn: "5m",
+export const activateAccount = CatchAsyncError(
+  async (req: Request, res: Response, next: NextFunction) => {
+    try {
+      const { activation_token, activation_code } =
+        req.body as IActivationRequest;
+      const newUser: { user: IUser; activationCode: string } = jwt.verify(
+        activation_token,
+        process.env.ACTIVATION_SECRET as string
+      ) as { user: IUser; activationCode: string };
+      if (newUser.activationCode !== activation_code) {
+        return next(new ErrorHandler("Invalid activation code", 400));
+      }
+      const { name, email, password } = newUser.user;
+      const userExists = await userModel.findOne({ email });
+      if (userExists) {
+        return next(new ErrorHandler("User already exists", 400));
+      }
+      const createdUser = await userModel.create({ name, email, password });
+      res
+        .status(201)
+        .json({ success: true, message: "You account has been activated" });
+    } catch (error: any) {
+      return next(new ErrorHandler(error.message, 400));
     }
-  );
-  return { token, activationCode };
-};
+  }
+);
+
+// User Login API
+
+interface ILoginRequest {
+  email: string;
+  password: string;
+}
+
+export const loginUser = CatchAsyncError(
+  async (req: Request, res: Response, next: NextFunction) => {
+    try {
+      const { email, password } = req.body as ILoginRequest;
+      if (!email || !password) {
+        return next(new ErrorHandler("Please enter email and password", 400));
+      }
+      const user = await userModel.findOne({ email }).select("+password");
+      if (!user) {
+        return next(new ErrorHandler("Invalid email or password", 400));
+      }
+      const isCorrectPassword = await user.comparePassword(password);
+      if (!isCorrectPassword) {
+        return next(new ErrorHandler("Invalid email or password", 400));
+      }
+      
+    } catch (error: any) {
+      return next(new ErrorHandler(error.message, 400));
+    }
+  }
+);
