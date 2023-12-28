@@ -5,6 +5,8 @@ import { CatchAsyncError } from "../middleware/catchAsyncErrors";
 import jwt, { Secret } from "jsonwebtoken";
 import sendEmail from "../utils/sendEmail";
 import { createActivationToken } from "../utils/helperFunctions";
+import { sendToken } from "../utils/auth";
+import { redis } from "../utils/redis";
 require("dotenv").config();
 
 // Register user
@@ -68,7 +70,7 @@ export const activateAccount = CatchAsyncError(
         activation_token,
         process.env.ACTIVATION_SECRET as string
       ) as { user: IUser; activationCode: string };
-      if (newUser.activationCode !== activation_code) {
+      if (newUser.activationCode !== activation_code.toString()) {
         return next(new ErrorHandler("Invalid activation code", 400));
       }
       const { name, email, password } = newUser.user;
@@ -108,7 +110,23 @@ export const loginUser = CatchAsyncError(
       if (!isCorrectPassword) {
         return next(new ErrorHandler("Invalid email or password", 400));
       }
-      
+      sendToken(user, 200, res);
+    } catch (error: any) {
+      return next(new ErrorHandler(error.message, 400));
+    }
+  }
+);
+
+export const logoutUser = CatchAsyncError(
+  async (req: Request, res: Response, next: NextFunction) => {
+    try {
+      res.cookie("access_token", "", { maxAge: 1 });
+      res.cookie("refresh_token", "", { maxAge: 1 });
+      const userId = req.user?.id || "";
+      redis.del(userId);
+      res
+        .status(200)
+        .json({ success: true, message: "User logged out successfully" });
     } catch (error: any) {
       return next(new ErrorHandler(error.message, 400));
     }
